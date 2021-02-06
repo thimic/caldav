@@ -372,6 +372,23 @@ class RepeatedFunctionalTestsBaseClass(object):
         else:
             return self.principal.make_calendar(name="Yep", cal_id=self.testcal_id)
 
+    def testSupport(self):
+        """
+        Test the check_*_support methods
+        """
+        assert(self.caldav.check_dav_support())
+        assert(self.caldav.check_cdav_support())
+        if 'no_scheduling' in self.server_params:
+            assert(not self.caldav.check_scheduling_support())
+        else:
+            assert(self.caldav.check_scheduling_support())
+
+    def testScheduling(self):
+        if 'no_scheduling' in self.server_params:
+            raise SkipTest("no scheduling support by caldav server")
+        inbox = self.caldav.schedule_inbox()
+        outbox = self.caldav.schedule_outbox()
+
     def testPropfind(self):
         """
         Test of the propfind methods. (This is sort of redundant, since
@@ -1454,7 +1471,7 @@ class TestLocalRadicale(RepeatedFunctionalTestsBaseClass):
         self.configuration.update({'storage': {'filesystem_folder': self.serverdir.name}})
         self.server = radicale.server
         self.server_params = {'url': 'http://%s:%i/' % (radicale_host, radicale_port), 'username': 'user1', 'password': 'password1'}
-        self.server_params['backwards_compatibility_url'] = self.server_params['url']+'user1/'
+        self.server_params['backwards_compatibility_url'] = self.server_params['url']+'user1'
         self.server_params['incompatibilities'] = compatibility_issues.radicale
         self.shutdown_socket, self.shutdown_socket_out = socket.socketpair()
         self.radicale_thread = threading.Thread(target=self.server.serve, args=(self.configuration, self.shutdown_socket_out))
@@ -1502,7 +1519,7 @@ class TestLocalXandikos(RepeatedFunctionalTestsBaseClass):
         self.xandikos_thread = threading.Thread(target=self.xandikos_server.serve_forever)
         self.xandikos_thread.start()
         self.server_params = {'url': 'http://user1:password1@%s:%i/' % (xandikos_host, xandikos_port)}
-        self.server_params['backwards_compatibility_url'] = self.server_params['url']+'sometestuser/'
+        self.server_params['backwards_compatibility_url'] = self.server_params['url']+'sometestuser'
         self.server_params['incompatibilities'] = compatibility_issues.xandikos
         RepeatedFunctionalTestsBaseClass.setup(self)
 

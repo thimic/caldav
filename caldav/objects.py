@@ -144,24 +144,6 @@ class DAVObject(object):
         result of code-refactoring work, attempting to consolidate
         similar-looking code into a common method.
         """
-        # ref https://bitbucket.org/cyrilrbt/caldav/issues/46 -
-        # COMPATIBILITY ISSUE. The lines below seems to solve real
-        # world problems, though I believe it's the wrong place to
-        # inject the missing slash.
-        # TODO: find out why the slash is missing and fix
-        # it properly.
-        # Background: Collection URLs ends with a slash,
-        # non-collection URLs does not end with a slash.  If the
-        # slash is missing, Servers MAY pretend it's present (RFC
-        # 4918, section 5.2, collection resources), hence only some
-        # few servers break when the slash is missing.  RFC 4918
-        # specifies that collection URLs end with a slash while
-        # non-collection URLs should not end with a slash.
-        if url is None:
-            url = self.url
-            if not url.endswith('/'):
-                url = URL(str(url) + '/')
-
         body = ""
         if root:
             if hasattr(root, 'xmlelement'):
@@ -169,6 +151,8 @@ class DAVObject(object):
                                       xml_declaration=True)
             else:
                 body = root
+        if url is None:
+            url = self.url
         ret = getattr(self.client, query_method)(
             url, body, depth)
         if ret.status == 404:
@@ -231,7 +215,17 @@ class DAVObject(object):
         if path in properties:
             rc = properties[path]
         elif exchange_path in properties:
-            log.error("potential path handling problem with ending slashes.  Path given: %s, path found: %s.  %s" % (path, exchange_path, error.ERR_FRAGMENT))
+            if not isinstance(self, Principal):
+                ## Some caldav servers reports the URL for the current
+                ## principal to end with / when doing a propfind for
+                ## current-user-principal - I believe that's a bug,
+                ## the principal is not a collection and should not
+                ## end with /.  (example in rfc5397 does not end with /).
+                ## ... but it gets worse ... when doing a propfind on the
+                ## principal, the href returned may be without the slash.
+                ## Such inconsistency is clearly a bug.
+                log.error("potential path handling problem with ending slashes.  Path given: %s, path found: %s.  %s" % (path, exchange_path, error.ERR_FRAGMENT))
+                error._assert(False)
             rc = properties[exchange_path]
         elif self.url in properties:
             rc = properties[self.url]
@@ -240,7 +234,7 @@ class DAVObject(object):
             ## The strange thing is that we apparently didn't encounter this problem in bc589093a34f0ed0ef489ad5e9cba048750c9837 or 3ee4e42e2fa8f78b71e5ffd1ef322e4007df7a60 - TODO: check this up
             rc = properties['/principal/']
         else:
-            log.error("Possibly the server has a path handling problem.  Path expected: %s, path found: %s %s" % (path, str(list(properties.keys)), error.ERR_FRAGMENT))
+            log.error("Possibly the server has a path handling problem.  Path expected: %s, path found: %s %s" % (path, str(list(properties.keys())), error.ERR_FRAGMENT))
             error.assert_(False)
 
         return rc
@@ -397,7 +391,7 @@ class Principal(DAVObject):
             self.url = self.client.url
             cup = self.get_properties([dav.CurrentUserPrincipal()])
             self.url = self.client.url.join(
-                URL.objectify(cup['{DAV:}current-user-principal']))
+                URL.objectify(cup[dav.CurrentUserPrincipal().tag]))
 
     def make_calendar(self, name=None, cal_id=None,
                       supported_calendar_component_set=None):
@@ -463,7 +457,7 @@ class Calendar(DAVObject):
             id = str(uuid.uuid1())
         self.id = id
 
-        path = self.parent.url.join(id)
+        path = self.parent.url.join(id + '/')
         self.url = path
 
         # TODO: mkcalendar seems to ignore the body on most servers?
@@ -555,8 +549,6 @@ class Calendar(DAVObject):
         """
         if self.url is None:
             self._create(name=self.name, id=self.id, **self.extra_init_options)
-            if not self.url.endswith('/'):
-                self.url = URL.objectify(str(self.url) + '/')
         return self
 
     def calendar_multiget(self, event_urls):
@@ -973,6 +965,37 @@ class Calendar(DAVObject):
         root = cdav.CalendarQuery() + [prop, filter]
 
         return self.search(root, comp_class=Journal)
+
+class ScheduleMailbox(Calendar):
+    """
+    RFC6638
+    TODO: This is a bit incorrect, a ScheduleMailbox is a collection,
+    but not really a calendar.  We should create a common base class
+    for ScheduleMailbox and Calendar eventually.
+    """
+    def __init__(self, client=None, url=None):
+        """
+        Will locate the mbox if no url is given
+        """
+        self.client = client
+        if url is not None:
+            self.url = client.url.join(URL.objectify(url))
+        else:
+            self.url = client.principal().url
+            try:
+                mbox_props = self.get_properties(
+                    [self.findprop()])
+                self.url = mbox_props[self.findprop().tag]
+            except:
+                error.assert_(client.check_scheduling_support())
+                self.url = None
+                raise error.NotFoundError("principal has no %s.  %s" % (str(self.findprop()), error.ERR_FRAGMENT))
+
+class ScheduleInbox(ScheduleMailbox):
+    findprop = cdav.ScheduleInboxURL
+
+class ScheduleOutbox(ScheduleMailbox):
+    findprop = cdav.ScheduleOutboxURL
 
 class SynchronizableCalendarObjectCollection(object):
     """

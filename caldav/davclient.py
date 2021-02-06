@@ -12,7 +12,7 @@ from caldav.elements import dav, cdav, ical
 
 from caldav.lib import error
 from caldav.lib.url import URL
-from caldav.objects import Principal, errmsg, log
+from caldav.objects import Principal, errmsg, log, ScheduleInbox, ScheduleOutbox
 
 if six.PY3:
     from urllib.parse import unquote
@@ -316,8 +316,26 @@ class DAVClient:
         higher-level methods for dealing with the principals
         calendars.
         """
-        return Principal(self)
+        return Principal(client=self)
 
+    def check_dav_support(self):
+        response = self.options(self.url)
+        return response.headers.get('DAV', None)
+
+    def check_cdav_support(self):
+        support_list = self.check_dav_support()
+        return 'calendar-access' in support_list
+
+    def check_scheduling_support(self):
+        support_list = self.check_dav_support()
+        return 'calendar-auto-schedule' in support_list
+
+    def schedule_inbox(self):
+        return ScheduleInbox(client=self)
+
+    def schedule_outbox(self):
+        return ScheduleOutbox(client=self)
+    
     def propfind(self, url=None, props="", depth=0):
         """
         Send a propfind request.
@@ -411,6 +429,9 @@ class DAVClient:
         Send a delete request.
         """
         return self.request(url, "DELETE")
+ 
+    def options(self, url):
+        return self.request(url, "OPTIONS")
 
     def request(self, url, method="GET", body="", headers={}):
         """
