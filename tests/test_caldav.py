@@ -259,6 +259,34 @@ END:VJOURNAL
 END:VCALENDAR
 """
 
+## From RFC4438 examples, with some modifications
+sched = """BEGIN:VCALENDAR
+   VERSION:2.0
+   PRODID:-//Example Corp.//CalDAV Client//EN
+   BEGIN:VEVENT
+   UID:9263504FD3AD
+   SEQUENCE:0
+   DTSTAMP:20210206T135000Z
+   DTSTART:20320602T160000Z
+   DTEND:20320602T170000Z
+   TRANSP:OPAQUE
+   SUMMARY:Lunch
+   ORGANIZER;CN="Cyrus Daboo":mailto:cyrus@example.com
+   ATTENDEE;CN="Cyrus Daboo";CUTYPE=INDIVIDUAL;PARTSTAT=ACCEPTED:
+    mailto:cyrus@example.com
+   ATTENDEE;CN="Wilfredo Sanchez Vega";CUTYPE=INDIVIDUAL;PARTSTAT
+    =NEEDS-ACTION;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:wilfredo@
+    example.com
+   ATTENDEE;CN="Bernard Desruisseaux";CUTYPE=INDIVIDUAL;PARTSTAT=
+    NEEDS-ACTION;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:bernard@ex
+    ample.net
+   ATTENDEE;CN="Mike Douglass";CUTYPE=INDIVIDUAL;PARTSTAT=NEEDS-A
+    CTION;RSVP=TRUE:mailto:mike@example.org
+   END:VEVENT
+   END:VCALENDAR
+
+"""
+
 class RepeatedFunctionalTestsBaseClass(object):
     """This is a class with functional tests (tests that goes through
     basic functionality and actively communicates with third parties)
@@ -386,8 +414,9 @@ class RepeatedFunctionalTestsBaseClass(object):
     def testScheduling(self):
         if 'no_scheduling' in self.server_params:
             raise SkipTest("no scheduling support by caldav server")
-        inbox = self.caldav.schedule_inbox()
-        outbox = self.caldav.schedule_outbox()
+        inbox = self.principal.schedule_inbox()
+        outbox = self.principal.schedule_outbox()
+        calendar_user_address_set = self.principal.calendar_user_address_set()
 
     def testPropfind(self):
         """

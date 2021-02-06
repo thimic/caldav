@@ -96,8 +96,7 @@ class DAVObject(object):
         props = [ dav.DisplayName()]
         multiprops = [ dav.ResourceType() ]
         response = self._query_properties(props+multiprops, depth)
-        properties = self._handle_xml_response(
-            response=response, props=props, multi_value_props=multiprops)
+        properties = response.expand_simple_props(props=props, multi_value_props=multiprops)
 
         for path in list(properties.keys()):
             resource_types = properties[path][dav.ResourceType.tag]
@@ -163,47 +162,39 @@ class DAVObject(object):
             raise error.exception_by_method[query_method](errmsg(ret))
         return ret
 
-    def _handle_xml_response(self, response, props=[], multi_value_props=[], type=None,
-                              what='text'):
-        """
-        Internal method to massage an XML response into a dict.
-        Most of the lifting here has been moved to DAVClient.
-        The remaining part here attempts to crush out some
-        simple string object from the assumed leave nodes
-        in the XML response, it should work well for most
-        simple cases.
-        """
-        results = response.expand_simple_props(props=props, multi_value_props=multi_value_props)
-        ## iCloud hack, remove href to self if it contains no properties
-        #path = self.url.path
-        #if not path.endswith('/'): ## TODO: why not?
-            #path = path + '/'
-        #if path in results and not [ x for x in props if results[path][x.tag] is not None ]:
-            #results.pop(path)
-        return results
+    def get_property(self, prop, **passthrough):
+        foo = self.get_properties([prop], **passthrough)
+        return foo[prop.tag]
 
-    def get_properties(self, props=None, depth=0, parse_response_xml=True):
-        """
-        Get properties (PROPFIND) for this object.  With
-        parse_response_xml set to True a best-attempt will be done on
-        decoding the XML we get from the server - but this works only
-        for properties that don't have complex types.  With
-        parse_response_xml set to False, a DAVResponse object will be
-        returned, and it's up to the caller to decode it
+    def get_properties(self, props=None, depth=0, parse_response_xml=True, parse_props=True):
+        """Get properties (PROPFIND) for this object.  
 
+        With parse_response_xml and parse_props set to True a
+        best-attempt will be done on decoding the XML we get from the
+        server - but this works only for properties that don't have
+        complex types.  With parse_response_xml set to False, a
+        DAVResponse object will be returned, and it's up to the caller
+        to decode.  With parse_props set to false but
+        parse_response_xml set to true, xml elements will be returned
+        rather than values.
+        
         Parameters:
          * props = [dav.ResourceType(), dav.DisplayName(), ...]
 
         Returns:
          * {proptag: value, ...}
+
         """
         rc = None
         response = self._query_properties(props, depth)
         if not parse_response_xml:
             return response
 
-        properties = self._handle_xml_response(response, props)
-
+        if not parse_props:
+            properties = response.find_objects_and_props()
+        else:
+            properties = response.expand_simple_props(props)
+            
         error.assert_(properties)
 
         path = unquote(self.url.path)
@@ -344,8 +335,7 @@ class CalendarSet(DAVObject):
         """
         if name and not cal_id:
             for calendar in self.calendars():
-                properties = calendar.get_properties([dav.DisplayName(), ])
-                display_name = properties['{DAV:}displayname']
+                display_name = calendar.get_property(dav.DisplayName())
                 if display_name == name:
                     return calendar
         if name and not cal_id:
@@ -389,9 +379,9 @@ class Principal(DAVObject):
             self.url = client.url.join(URL.objectify(url))
         else:
             self.url = self.client.url
-            cup = self.get_properties([dav.CurrentUserPrincipal()])
+            cup = self.get_property(dav.CurrentUserPrincipal())
             self.url = self.client.url.join(
-                URL.objectify(cup[dav.CurrentUserPrincipal().tag]))
+                URL.objectify(cup))
 
     def make_calendar(self, name=None, cal_id=None,
                       supported_calendar_component_set=None):
@@ -413,9 +403,7 @@ class Principal(DAVObject):
     @property
     def calendar_home_set(self):
         if not self._calendar_home_set:
-            chs = self.get_properties([cdav.CalendarHomeSet()])
-            self.calendar_home_set = chs[
-                '{urn:ietf:params:xml:ns:caldav}calendar-home-set']
+            self.calendar_home_set = self.get_property(cdav.CalendarHomeSet())
         return self._calendar_home_set
 
     @calendar_home_set.setter
@@ -442,6 +430,23 @@ class Principal(DAVObject):
         """
         return self.calendar_home_set.calendars()
 
+    def calendar_user_address_set(self):
+        """
+        defined in RFC6638
+        """
+        addresses = self.get_property(cdav.CalendarUserAddressSet(), parse_props=False)
+        assert not [x for x in addresses if x.tag != dav.Href().tag]
+        addresses = list(addresses)
+        ## possibly the prefferred attribute is iCloud-specific.
+        ## TODO: do more research on that
+        addresses.sort(key=lambda x: -int(x.get('preferred', 0)))
+        return [x.text for x in addresses]
+
+    def schedule_inbox(self):
+        return ScheduleInbox(principal=self)
+
+    def schedule_outbox(self):
+        return ScheduleOutbox(principal=self)
 
 class Calendar(DAVObject):
     """
@@ -489,12 +494,13 @@ class Calendar(DAVObject):
             try:
                 self.set_properties([display_name])
             except:
+                error.assert_(False)
                 try:
-                    current_display_name = self.get_properties([display_name])
-                    if current_display_name != name:
-                        log.warning("caldav server not complient with RFC4791. unable to set display name on calendar.  Wanted name: \"%s\" - gotten name: \"%s\".  Ignoring." % (name, current_display_name))
+                    current_display_name = self.get_property(display_name)
+                    error.assert_(current_display_name == name)
                 except:
                     log.warning("calendar server does not support display name on calendar?  Ignoring", exc_info=True)
+                    error.assert_(False)
 
     def get_supported_components(self):
         """
@@ -650,8 +656,7 @@ class Calendar(DAVObject):
         else:
             props_ = [cdav.CalendarData()] + props
         response = self._query(xml, 1, 'report')
-        results = self._handle_xml_response(
-            response=response, props=props_)
+        results = response.expand_simple_props(props_)
         for r in results:
             pdata = results[r]
             if cdav.CalendarData.tag in pdata:
@@ -973,21 +978,22 @@ class ScheduleMailbox(Calendar):
     but not really a calendar.  We should create a common base class
     for ScheduleMailbox and Calendar eventually.
     """
-    def __init__(self, client=None, url=None):
+    def __init__(self, client=None, principal=None, url=None):
         """
         Will locate the mbox if no url is given
         """
-        self.client = client
+        if not client and principal:
+            self.client = principal.client
+        if not principal and client:
+            principal = self.client.principal()
         if url is not None:
             self.url = client.url.join(URL.objectify(url))
         else:
-            self.url = client.principal().url
+            self.url = principal.url
             try:
-                mbox_props = self.get_properties(
-                    [self.findprop()])
-                self.url = mbox_props[self.findprop().tag]
+                self.url = self.get_property(self.findprop())
             except:
-                error.assert_(client.check_scheduling_support())
+                error.assert_(self.client.check_scheduling_support())
                 self.url = None
                 raise error.NotFoundError("principal has no %s.  %s" % (str(self.findprop()), error.ERR_FRAGMENT))
 

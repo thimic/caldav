@@ -119,6 +119,9 @@ class Comp(NamedBaseElement):
 
 
 # Properties
+class CalendarUserAddressSet(BaseElement):
+    tag = ns("C", "calendar-user-address-set")
+
 class CalendarHomeSet(BaseElement):
     tag = ns("C", "calendar-home-set")
 

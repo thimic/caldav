@@ -154,7 +154,7 @@ class DAVResponse:
         error.assert_(href)
         return (href, propstats, status)
 
-    def find_objects_and_props(self, compatibility_mode=False):
+    def find_objects_and_props(self):
         """Check the response from the server, check that it is on an expected format,
         find hrefs and props from it and check statuses delivered.
 
@@ -188,10 +188,9 @@ class DAVResponse:
                     error.assert_(len(status) == 0)
                     cnt += 1
                     self.validate_status(status.text)
-                    if not compatibility_mode:
-                        ## if a prop was not found, ignore it
-                        if ' 404 ' in status.text:
-                            continue
+                    ## if a prop was not found, ignore it
+                    if ' 404 ' in status.text:
+                        continue
                 for prop in propstat.iterfind(dav.Prop.tag):
                     cnt += 1
                     for theprop in prop:
@@ -202,7 +201,7 @@ class DAVResponse:
 
         return self.objects
 
-    def _expand_prop(self, proptag, props_found, multi_value_allowed=False, xpath=None):
+    def _expand_simple_prop(self, proptag, props_found, multi_value_allowed=False, xpath=None):
         values = []
         if proptag in props_found:
             prop_xml = props_found[proptag]
@@ -228,6 +227,7 @@ class DAVResponse:
             error.assert_(len(values)==1)
             return values[0]
 
+    ## TODO: "expand" does not feel quite right.
     def expand_simple_props(self, props=[], multi_value_props=[], xpath=None):
         """
         The find_objects_and_props() will stop at the xml element
@@ -242,9 +242,9 @@ class DAVResponse:
         for href in self.objects:
             props_found = self.objects[href]
             for prop in props:
-                props_found[prop.tag] = self._expand_prop(prop.tag, props_found, xpath=xpath)
+                props_found[prop.tag] = self._expand_simple_prop(prop.tag, props_found, xpath=xpath)
             for prop in multi_value_props:
-                props_found[prop.tag] = self._expand_prop(prop.tag, props_found, xpath=xpath, multi_value_allowed=True)
+                props_found[prop.tag] = self._expand_simple_prop(prop.tag, props_found, xpath=xpath, multi_value_allowed=True)
         return self.objects
 
 class DAVClient:
@@ -330,12 +330,6 @@ class DAVClient:
         support_list = self.check_dav_support()
         return 'calendar-auto-schedule' in support_list
 
-    def schedule_inbox(self):
-        return ScheduleInbox(client=self)
-
-    def schedule_outbox(self):
-        return ScheduleOutbox(client=self)
-    
     def propfind(self, url=None, props="", depth=0):
         """
         Send a propfind request.
