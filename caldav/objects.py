@@ -221,7 +221,7 @@ class DAVObject(object):
         elif self.url in properties:
             rc = properties[self.url]
         elif '/principal/' in properties and path.endswith('/principal/'):
-            log.error("Bypassing a known iCloud bug - path expected in response: %s, path found: /principal/" % (path, error.ERR_FRAGMENT))
+            log.error("Bypassing a known iCloud bug - path expected in response: %s, path found: /principal/ ... %s" % (path, error.ERR_FRAGMENT))
             ## The strange thing is that we apparently didn't encounter this problem in bc589093a34f0ed0ef489ad5e9cba048750c9837 or 3ee4e42e2fa8f78b71e5ffd1ef322e4007df7a60 - TODO: check this up
             rc = properties['/principal/']
         else:
@@ -991,7 +991,7 @@ class ScheduleMailbox(Calendar):
         else:
             self.url = principal.url
             try:
-                self.url = self.get_property(self.findprop())
+                self.url = URL(self.get_property(self.findprop()))
             except:
                 error.assert_(self.client.check_scheduling_support())
                 self.url = None

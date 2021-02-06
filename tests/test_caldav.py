@@ -16,6 +16,7 @@ import time
 import vobject
 import uuid
 import tempfile
+import random
 from collections import namedtuple
 from datetime import datetime
 from six import PY3
@@ -261,31 +262,28 @@ END:VCALENDAR
 
 ## From RFC4438 examples, with some modifications
 sched = """BEGIN:VCALENDAR
-   VERSION:2.0
-   PRODID:-//Example Corp.//CalDAV Client//EN
-   BEGIN:VEVENT
-   UID:9263504FD3AD
-   SEQUENCE:0
-   DTSTAMP:20210206T135000Z
-   DTSTART:20320602T160000Z
-   DTEND:20320602T170000Z
-   TRANSP:OPAQUE
-   SUMMARY:Lunch
-   ORGANIZER;CN="Cyrus Daboo":mailto:cyrus@example.com
-   ATTENDEE;CN="Cyrus Daboo";CUTYPE=INDIVIDUAL;PARTSTAT=ACCEPTED:
-    mailto:cyrus@example.com
-   ATTENDEE;CN="Wilfredo Sanchez Vega";CUTYPE=INDIVIDUAL;PARTSTAT
-    =NEEDS-ACTION;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:wilfredo@
-    example.com
-   ATTENDEE;CN="Bernard Desruisseaux";CUTYPE=INDIVIDUAL;PARTSTAT=
-    NEEDS-ACTION;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:bernard@ex
-    ample.net
-   ATTENDEE;CN="Mike Douglass";CUTYPE=INDIVIDUAL;PARTSTAT=NEEDS-A
-    CTION;RSVP=TRUE:mailto:mike@example.org
-   END:VEVENT
-   END:VCALENDAR
-
-"""
+VERSION:2.0
+PRODID:-//Example Corp.//CalDAV Client//EN
+BEGIN:VEVENT
+UID:%s
+SEQUENCE:0
+DTSTAMP:20210206T%sZ
+DTSTART:203206%02iT%sZ
+DURATION:PT1H
+TRANSP:OPAQUE
+SUMMARY:Lunch or something
+ORGANIZER;CN="nylastest":mailto:nylastest002@icloud.com'
+ATTENDEE;CN="nylastest";CUTYPE=INDIVIDUAL;PARTSTAT=ACCEPTED:
+ mailto:nylastest002@icloud.com
+ATTENDEE;CN="Tobias Testing Brox";CUTYPE=INDIVIDUAL;PARTSTAT
+ =NEEDS-ACTION;ROLE=REQ-PARTICIPANT;RSVP=TRUE:mailto:t-caldav@tobixen.no
+ATTENDEE;CN="Tobias Test2 Brox";CUTYPE=INDIVIDUAL;PARTSTAT=NEEDS-A
+ CTION;RSVP=TRUE:mailto:t-caldav-test2@tobixen.no
+END:VEVENT
+END:VCALENDAR
+""" % (str(uuid.uuid4()), random.randint(1,28),
+       "%2i%2i%2i" % (random.randint(0,24), random.randint(0,60), random.randint(0,60)),
+       "%2i%2i%2i" % (random.randint(0,24), random.randint(0,60), random.randint(0,60)))
 
 class RepeatedFunctionalTestsBaseClass(object):
     """This is a class with functional tests (tests that goes through
@@ -417,6 +415,9 @@ class RepeatedFunctionalTestsBaseClass(object):
         inbox = self.principal.schedule_inbox()
         outbox = self.principal.schedule_outbox()
         calendar_user_address_set = self.principal.calendar_user_address_set()
+        c = self._fixCalendar()
+        ## this should cause an email to be sent by the server
+        c.save_event(sched)
 
     def testPropfind(self):
         """

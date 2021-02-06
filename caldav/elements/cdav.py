@@ -122,6 +122,9 @@ class Comp(NamedBaseElement):
 class CalendarUserAddressSet(BaseElement):
     tag = ns("C", "calendar-user-address-set")
 
+class CalendarUserType(BaseElement):
+    tag = ns("C", "calendar-user-type")
+
 class CalendarHomeSet(BaseElement):
     tag = ns("C", "calendar-home-set")
 
@@ -164,7 +167,5 @@ class MaxInstances(ValuedBaseElement):
 class MaxAttendeesPerInstance(ValuedBaseElement):
     tag = ns("C", "max-attendees-per-instance")
 
-
-# This seems redundant, it redefines line 107
-# class SupportedCalendarComponentSet(BaseElement):
-#     tag = ns("C", "supported-calendar-component-set")
+class Allprop(BaseElement):
+    tag = ns("C", "allprop")
