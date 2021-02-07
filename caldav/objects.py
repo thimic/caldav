@@ -534,6 +534,11 @@ class Calendar(DAVObject):
         return [supported.get('name') for supported in prop]
 
     def send_schedule_request(self, ical, attendees):
+        ## TODO: method supports raw strings, probably not icalendar nor vobject.
+        obj = self._calendar_comp_class_by_data(ical)(data=ical)
+        obj.add_organizer()
+        for attendee in attendees:
+            obj.add_attendee(attendee)
         raise NotImplementedError("work in progress") ## TODO
 
     def save_event(self, ical, no_overwrite=False, no_create=False):
@@ -858,6 +863,7 @@ class Calendar(DAVObject):
                 return Journal
             if line == 'BEGIN:VFREEBUSY':
                 return FreeBusy
+        return CalendarObjectResource
 
     def event_by_url(self, href, data=None):
         """
@@ -1132,7 +1138,14 @@ class CalendarObjectResource(DAVObject):
         organizer line to the event
         """
         principal = self.client.principal()
+        ## TODO: remove Organizer-field, if exists
+        ## TODO: what if walk returns more than one vevent?
         self.icalendar_instance.walk("vevent")[0].add('organizer', principal.get_vcal_address())
+
+    def add_attendee(self, attendee, partstat='NEEDS-ACTION', attributes={}):
+        raise NotImplementedError("work in progress") ## TODO
+        ## TODO: check first that the attendee exists
+        #self.icalendar_instance.walk("vevent")[0].add('attendee', principal.get_vcal_address())
 
     def copy(self, keep_uid=False, new_parent=None):
         """
