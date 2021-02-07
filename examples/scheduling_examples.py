@@ -1,33 +1,32 @@
-from caldav import DAVClient
+from caldav import DAVClient, error
 from icalendar import Calendar, Event
 from datetime import datetime, timedelta
 import uuid
 import sys
 
-## Set up three clients and three principals.  
-clients = [
-    DAVClient(username = "testuser%i" % i, password = "testpass%i" %i, url = "http://calendar.tobixen.no/caldav.php/")
-    for i in (1,2,3)
-]
+## Some inital setup.  We'll need three caldav client objects, with
+## corresponding principal objects and calendars.
+class TestUser:
+    def __init__(self, i):
+        self.client = DAVClient(username = "testuser%i" % i, password = "testpass%i" %i, url = "http://calendar.tobixen.no/caldav.php/")
+        self.principal = self.client.principal()
+        calendar_id = "schedulingtestcalendar%i" % i
+        calendar_name = "calendar #%i for scheduling demo" % i
+        try:
+            self.calendar = self.principal.calendar(name=calendar_name)
+        except error.NotFoundError:
+            self.calendar = self.principal.make_calendar(name=calendar_name, cal_id=calendar_id)
+organizer = TestUser(1)
+attendee1 = TestUser(2)
+attendee2 = TestUser(3)
 
-if not clients[0].check_scheduling_support():
+## Verify that the calendar server supports scheduling
+if not organizer.client.check_scheduling_support():
     print("Server does not support RFC6638")
     sys.exit(1)
 
-## testuser1 (that's clients[0] / principal[0])  wants to set up a meeting
-## involving testuser2 and testuser3.
-
-## testuser2 and testuser3 (on client[1] / principal[1] and
-## client[2] / principal[2]) needs to respond to the RSVP.
-
-principals = [ c.principal() for c in clients ]
-
-demo_calendars = [
-    p.make_calendar(name="calendar for scheduling demo", cal_id="schedulingtestcalendar%i" % i)
-    for (p, i) in zip(principals, range(0,len(principals)))]
-
-## Let's start with building some icalendar event.  A meeting some
-## years from now, building it using the icalendar library.
+## We'll be using the icalendar library to set up a mock meeting,
+## at some far point in the future.
 caldata = Calendar()
 caldata.add('prodid', '-//tobixen//python-icalendar//en_DK')
 caldata.add('version', '2.0')
@@ -45,7 +44,7 @@ caldata.add_component(event)
 print("Here is our test event:")
 print(caldata.to_ical().decode('utf-8'))
 
-## that event is without any scheduling information.  If saved to the
+## that event is without any attendee information.  If saved to the
 ## calendar, it will only be stored locally, no invitations sent.
 
 ## There are two ways to send calendar invites:
@@ -59,22 +58,26 @@ print(caldata.to_ical().decode('utf-8'))
 ##   accept different kind of attendees: strings, VCalAddress, (cn,
 ##   email)-tuple and principal object.
 
-## In the example below, I'm inviting myself (by VCalAddress), test
-## user #2 (by CN/email tuple) and test user #3 (by principle object.
-## Keep in mind that the sender of the invitation, user #1, should not
-## have access to principals[2], so it's doing a detour to find the
-## principal object of user #3.
-demo_calendars[0].send_meeting_request(cal, attendees=(
-    principals[0].get_vcal_address()
-    ('Test User 2', 't-caldav-test2@tobixen.no'),
-    clients[0].principal(url=pricipals[0].url.replace('testuser1', 'testuser2'))
-))
+## In the example below, the organizer is inviting itself (by
+## VCalAddress), attendee1 (by CN/email tuple) and attendee2 (by
+## principle object).  (Arguably it would have been easy to use
+## attendee2.principle instead of building a new principle object -
+## but remember, the attendee2-object contains credentials for
+## attendee2, the organizer is not supposed to have access to this
+## object).
 
-## Invite shipped.  Testuser2 should now respond to it.
-for inbox_item in principal[1].schedule_inbox.get_items():
+organizer.calendar.send_schedule_request(
+    caldata, attendees=(
+        organizer.principal.get_vcal_address(),
+        ('Test User 2', 't-caldav-test2@tobixen.no'),
+        organizer.client.principal(url=organizer.principal.url.replace('testuser1', 'testuser2'))
+    ))
+
+## Invite shipped.  The attendees should now respond to it.
+for inbox_item in attendee1.schedule_inbox.get_items():
     ## an inbox_item is an ordinary CalendarResourceObject/Event/Todo etc.
     ## is_invite() will be implemented on the base class and will yield True
-    ## for scheduling invite messages.
+    ## for invite messages.
     if inbox_item.is_invite():
         
         ## Ref RFC6638, example B.3 ... to respond to an invite, it's
@@ -92,8 +95,8 @@ for inbox_item in principal[1].schedule_inbox.get_items():
         ## (ref RFC6638, example B.2)
         inbox_item.accept_invite()
 
-## Testuser3 is unavailable
-for inbox_item in principal[2].schedule_inbox.get_items():
+## Testuser3 has other long-term plans and can't join the event
+for inbox_item in attendee2.principal.schedule_inbox.get_items():
     if inbox_item.is_invite():
         inbox_item.reject_invite()
 
@@ -104,7 +107,7 @@ for inbox_item in principal[2].schedule_inbox.get_items():
 ## understood, deleting the ical objects in the inbox should be
 ## harmless, it should still exist on the organizers calendar.
 ## (Example B.4 in RFC6638)
-for inbox_item in principal[0].schedule_inbox.get_items():
+for inbox_item in organizer.principal.schedule_inbox.get_items():
     if inbox_item.is_invite():
         inbox_item.accept_invite()
     elif inbox_item.is_reply():
@@ -118,7 +121,7 @@ for inbox_item in principal[0].schedule_inbox.get_items():
 ## However, I will probably make a convenience method for doing the
 ## query, and leaving the parsing of the returned icalendar data to
 ## the user of the library:
-some_ical_returned = principal[0].freebusy_request(
+some_ical_returned = organizer.principal.freebusy_request(
     start_time=datetime.now() + timedelta(days=3999),
     end_time=datetime.now() + timedelta(days=4001),
     participants=[
