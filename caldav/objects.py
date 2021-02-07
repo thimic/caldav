@@ -164,7 +164,7 @@ class DAVObject(object):
 
     def get_property(self, prop, **passthrough):
         foo = self.get_properties([prop], **passthrough)
-        return foo[prop.tag]
+        return foo.get(prop.tag, None)
 
     def get_properties(self, props=None, depth=0, parse_response_xml=True, parse_props=True):
         """Get properties (PROPFIND) for this object.  
@@ -228,6 +228,8 @@ class DAVObject(object):
             log.error("Possibly the server has a path handling problem.  Path expected: %s, path found: %s %s" % (path, str(list(properties.keys())), error.ERR_FRAGMENT))
             error.assert_(False)
 
+        if parse_props:
+            self.props.update(rc)
         return rc
 
     def set_properties(self, props=None):
@@ -371,13 +373,10 @@ class Principal(DAVObject):
         If url is not given, deduct principal path as well as calendar home set
         path from doing propfinds.
         """
-        self.client = client
+        super(Principal, self).__init__(client=client, url=url)
         self._calendar_home_set = None
 
-        # backwards compatibility.
-        if url is not None:
-            self.url = client.url.join(URL.objectify(url))
-        else:
+        if url is None:
             self.url = self.client.url
             cup = self.get_property(dav.CurrentUserPrincipal())
             self.url = self.client.url.join(
@@ -400,6 +399,20 @@ class Principal(DAVObject):
         """
         return self.calendar_home_set.calendar(name, cal_id)
 
+    def get_vcal_address(self):
+        """
+        Returns the principal, as an icalendar.vCalAddress object
+        """
+        ## Late import.  Prior to 1.0, icalendar is only an optional dependency.
+        from icalendar import vCalAddress, vText
+        cn = self.get_property(dav.DisplayName())
+        ids = self.calendar_user_address_set()
+        cutype = self.get_property(cdav.CalendarUserType())
+        ret = vCalAddress(ids[0])
+        ret.params['cn'] = vText(cn)
+        ret.params['cutype'] = vText(cutype)
+        return ret
+
     @property
     def calendar_home_set(self):
         if not self._calendar_home_set:
@@ -420,6 +433,12 @@ class Principal(DAVObject):
                 sanitized_url.hostname != self.client.url.hostname):
                 # icloud (and others?) having a load balanced system,
                 # where each principal resides on one named host
+                ## TODO:
+                ## Here be dragons.  sanitized_url will be the root
+                ## of all future objects derived from client.  Changing
+                ## the client.url root by doing a principal.calendars()
+                ## is an unacceptable side effect and may be a cause of
+                ## incompatibilities with icloud.  Do more research!
                 self.client.url = sanitized_url
         self._calendar_home_set = CalendarSet(
             self.client, self.client.url.join(sanitized_url))
@@ -494,9 +513,10 @@ class Calendar(DAVObject):
             try:
                 self.set_properties([display_name])
             except:
+                ## TODO: investigate.  Those asserts break.
                 error.assert_(False)
                 try:
-                    current_display_name = self.get_property(display_name)
+                    current_display_name = self.get_property(dav.DisplayName())
                     error.assert_(current_display_name == name)
                 except:
                     log.warning("calendar server does not support display name on calendar?  Ignoring", exc_info=True)
@@ -513,6 +533,9 @@ class Calendar(DAVObject):
         prop = response_list[unquote(self.url.path)][cdav.SupportedCalendarComponentSet().tag]
         return [supported.get('name') for supported in prop]
 
+    def send_invite(self, ical):
+        raise NotImplementedError("work in progress") ## TODO
+
     def save_event(self, ical, no_overwrite=False, no_create=False):
         """
         Add a new event to the calendar, with the given ical.
@@ -520,7 +543,9 @@ class Calendar(DAVObject):
         Parameters:
          * ical - ical object (text)
         """
-        return Event(self.client, data=ical, parent=self).save(no_overwrite=no_overwrite, no_create=no_create, obj_type='event')
+        e = Event(self.client, data=ical, parent=self)
+        e.save(no_overwrite=no_overwrite, no_create=no_create, obj_type='event')
+        return e
 
     def save_todo(self, ical, no_overwrite=False, no_create=False):
         """
@@ -982,20 +1007,47 @@ class ScheduleMailbox(Calendar):
         """
         Will locate the mbox if no url is given
         """
+        super(ScheduleMailbox, self).__init__(client=client, url=url)
+        self._items = None
         if not client and principal:
             self.client = principal.client
         if not principal and client:
-            principal = self.client.principal()
+            principal = self.client.principal
         if url is not None:
             self.url = client.url.join(URL.objectify(url))
         else:
             self.url = principal.url
             try:
-                self.url = URL(self.get_property(self.findprop()))
+                self.url = self.client.url.join(URL(self.get_property(self.findprop())))
             except:
+                logging.error("something bad happened", exc_info=True)
                 error.assert_(self.client.check_scheduling_support())
                 self.url = None
                 raise error.NotFoundError("principal has no %s.  %s" % (str(self.findprop()), error.ERR_FRAGMENT))
+
+    def get_items():
+        """
+        TODO: work in progress
+        TODO: perhaps this belongs to the super class?
+        """
+        if not self._items:
+            try:
+                self._items = self.objects()
+                logging.debug("caldav server does not seem to support a sync-token REPORT query on a scheduling mailbox")
+                error.assert_('google' in self.url)
+            except:
+                self._items = self.children()
+        else:
+            try:
+                self._items.sync()
+            except:
+                self._items = self.children()
+        return self._items
+
+    ## TODO: work in progress
+#    def get_invites():
+#        for item in self.get_items():
+#            if item.vobject_instance.vevent.
 
 class ScheduleInbox(ScheduleMailbox):
     findprop = cdav.ScheduleInboxURL
@@ -1074,6 +1126,14 @@ class CalendarObjectResource(DAVObject):
         if data is not None:
             self.data = data
 
+    def add_organizer(self):
+        """
+        goes via self.client, finds the principal, figures out the right attendee-format and adds an
+        organizer line to the event
+        """
+        principal = self.client.principal()
+        self.icalendar_instance.walk("vevent")[0].add('organizer', principal.get_vcal_address())
+
     def copy(self, keep_uid=False, new_parent=None):
         """
         Events, todos etc can be copied within the same calendar, to another
@@ -1139,6 +1199,12 @@ class CalendarObjectResource(DAVObject):
 
         self.url = URL.objectify(path)
         self.id = id
+
+    def change_attendee_status(status, attendee=None):
+        if not attendee:
+            attendee = self.client.principal()
+        pass
+        ## TODO - work in progress
 
     def save(self, no_overwrite=False, no_create=False, obj_type=None):
         """

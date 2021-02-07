@@ -307,7 +307,9 @@ class DAVClient:
         self.url = self.url.unauth()
         log.debug("self.url: " + str(url))
 
-    def principal(self):
+        self._principal = None
+
+    def principal(self, *largs, **kwargs):
         """
         Convenience method, it gives a bit more object-oriented feel to
         write client.principal() than Principal(client).
@@ -316,7 +318,9 @@ class DAVClient:
         higher-level methods for dealing with the principals
         calendars.
         """
-        return Principal(client=self)
+        if not self._principal:
+            self._principal = Principal(client=self, *largs, **kwargs)
+        return self._principal
 
     def check_dav_support(self):
         response = self.options(self.url)
