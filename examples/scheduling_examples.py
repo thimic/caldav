@@ -70,7 +70,7 @@ organizer.calendar.send_schedule_request(
     caldata, attendees=(
         organizer.principal.get_vcal_address(),
         ('Test User 2', 't-caldav-test2@tobixen.no'),
-        organizer.client.principal(url=organizer.principal.url.replace('testuser1', 'testuser2'))
+        organizer.client.principal(url=organizer.principal.url.replace('testuser1', 'testuser3'))
     ))
 
 ## Invite shipped.  The attendees should now respond to it.
