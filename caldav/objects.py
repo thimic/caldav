@@ -533,13 +533,19 @@ class Calendar(DAVObject):
         prop = response_list[unquote(self.url.path)][cdav.SupportedCalendarComponentSet().tag]
         return [supported.get('name') for supported in prop]
 
-    def send_schedule_request(self, ical, attendees):
+    def send_schedule_request(self, ical, attendees, **attendeeoptions):
+        """
+        sends a schedule request to the server.  Equivalent with save_event, save_todo, etc,
+        but the attendees will be added to the ical object before sending it to the server.
+        """
         ## TODO: method supports raw strings, probably not icalendar nor vobject.
         obj = self._calendar_comp_class_by_data(ical)(data=ical, client=self.client)
+        obj.parent = self
         obj.add_organizer()
         for attendee in attendees:
-            obj.add_attendee(attendee)
-        raise NotImplementedError("work in progress") ## TODO
+            obj.add_attendee(attendee, **attendeeoptions)
+        obj.id = obj.icalendar_instance.walk('vevent')[0]['uid']
+        obj.save()
 
     def save_event(self, ical, no_overwrite=False, no_create=False):
         """
@@ -1048,7 +1054,7 @@ class ScheduleMailbox(Calendar):
                 self.url = None
                 raise error.NotFoundError("principal has no %s.  %s" % (str(self.findprop()), error.ERR_FRAGMENT))
 
-    def get_items():
+    def get_items(self):
         """
         TODO: work in progress
         TODO: perhaps this belongs to the super class?
@@ -1056,9 +1062,9 @@ class ScheduleMailbox(Calendar):
         if not self._items:
             try:
                 self._items = self.objects()
-                logging.debug("caldav server does not seem to support a sync-token REPORT query on a scheduling mailbox")
-                error.assert_('google' in self.url)
             except:
+                logging.debug("caldav server does not seem to support a sync-token REPORT query on a scheduling mailbox")
+                error.assert_('google' in str(self.url))
                 self._items = self.children()
         else:
             try:
@@ -1159,10 +1165,74 @@ class CalendarObjectResource(DAVObject):
         ## TODO: what if walk returns more than one vevent?
         self.icalendar_instance.walk("vevent")[0].add('organizer', principal.get_vcal_address())
 
-    def add_attendee(self, attendee, partstat='NEEDS-ACTION', attributes={}):
-        raise NotImplementedError("work in progress") ## TODO
-        ## TODO: check first that the attendee exists
-        #self.icalendar_instance.walk("vevent")[0].add('attendee', principal.get_vcal_address())
+    def _icalendar_object(self):
+        import icalendar
+        for x in self.icalendar_instance.subcomponents:
+            for cl in (icalendar.Event, icalendar.Journal, icalendar.Todo):
+                if isinstance(x, cl):
+                    return x
+
+    def add_attendee(self, attendee, **attributes):
+        """
+        For the current (event/todo/journal), add an attendee.
+
+        The attendee can be any of the following:
+        * A principal
+        * An email address prepended with "mailto:"
+        * An email address without the "mailto:"-prefix
+        * A two-item tuple containing a common name and an email address
+        * (not supported, but planned: an ical text line starting with the 
+          word "ATTENDEE")
+
+        Any number of attendee attributes can be given, those will be used
+        as defaults:
+
+        partstat=NEEDS-ACTION
+        cutype=UNKNOWN (unless a principal object is given)
+        rsvp=TRUE
+        role=REQ-PARTICIPANT
+        """
+        from icalendar import vCalAddress, vText
+
+        if isinstance(attendee, Principal):
+            attendee_obj = attendee.get_vcal_address()
+        elif isinstance(attendee, vCalAddress):
+            attendee_obj = attendee
+        elif isinstance(attendee, tuple):
+            if attendee[1].startswith('mailto:'):
+                attendee_obj = vCalAddress(attendee[1])
+            else:
+                attendee_obj = vCalAddress(attendee[1])
+            attendee_obj.params['cn'] = vText(attendee[0])
+        elif isinstance(attendee, str):
+            if attendee.startswith('ATTENDEE'):
+                raise NotImplementedError("do we need to support this anyway?  Should be trivial, but can't figure out how to do it with the icalendar.Event/vCalAddress objects right now")
+            elif attendee.startswith('mailto:'):
+                attendee_obj = vCalAddress(attendee)
+            elif '@' in attendee and not ':' in attendee and not ';' in attendee:
+                attendee_obj = vCalAddress('mailto:' + attendee)
+
+        ## TODO: if possible, check that the attendee exists
+        ## TODO: check that the attendee will not be duplicated in the event.
+        ## Sensible defaults:
+        attendee_obj.params['partstat']='NEEDS-ACTION'
+        if not 'cutype' in attendee_obj.params:
+            attendee_obj.params['cutype']='UNKNOWN'
+        attendee_obj.params['rsvp']='TRUE'
+        attendee_obj.params['role']='REQ-PARTICIPANT'
+        for key in attributes:
+            if '_' in key:
+                attributes[key.replace('-', '_')] = attributes.pop(key)
+            if attributes[key] == True:
+                attributes[key] = 'TRUE'
+        attendee_obj.params.update(attributes)
+        ievent = self._icalendar_object()
+        ievent.add('attendee', attendee_obj)
+
+    def is_participation_request(self):
+        if not self.data:
+            self.load()
+        return self.icalendar_instance.get('method', None) == 'REQUEST'
 
     def copy(self, keep_uid=False, new_parent=None):
         """

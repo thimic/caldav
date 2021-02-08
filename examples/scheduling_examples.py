@@ -66,6 +66,7 @@ print(caldata.to_ical().decode('utf-8'))
 ## attendee2, the organizer is not supposed to have access to this
 ## object).
 
+print("sending the schedule request to the server, with three attendees")
 organizer.calendar.send_schedule_request(
     caldata, attendees=(
         organizer.principal.get_vcal_address(),
@@ -74,11 +75,17 @@ organizer.calendar.send_schedule_request(
     ))
 
 ## Invite shipped.  The attendees should now respond to it.
-for inbox_item in attendee1.schedule_inbox.get_items():
+print("looking into the inbox of attendee1")
+all_cnt = 0
+part_req_cnt = 0
+for inbox_item in attendee1.principal.schedule_inbox().get_items():
+    import pdb; pdb.set_trace()
+    all_cnt += 1
     ## an inbox_item is an ordinary CalendarResourceObject/Event/Todo etc.
-    ## is_invite() will be implemented on the base class and will yield True
+    ## is_participation_request will be implemented on the base class and will yield True
     ## for invite messages.
-    if inbox_item.is_invite():
+    if inbox_item.is_participation_request():
+        part_req_cnt += 1
         
         ## Ref RFC6638, example B.3 ... to respond to an invite, it's
         ## needed to edit the ical data, find the correct
@@ -96,7 +103,7 @@ for inbox_item in attendee1.schedule_inbox.get_items():
         inbox_item.accept_invite()
 
 ## Testuser3 has other long-term plans and can't join the event
-for inbox_item in attendee2.principal.schedule_inbox.get_items():
+for inbox_item in attendee2.principal.schedule_inbox().get_items():
     if inbox_item.is_invite():
         inbox_item.reject_invite()
 
@@ -107,7 +114,7 @@ for inbox_item in attendee2.principal.schedule_inbox.get_items():
 ## understood, deleting the ical objects in the inbox should be
 ## harmless, it should still exist on the organizers calendar.
 ## (Example B.4 in RFC6638)
-for inbox_item in organizer.principal.schedule_inbox.get_items():
+for inbox_item in organizer.principal.schedule_inbox().get_items():
     if inbox_item.is_invite():
         inbox_item.accept_invite()
     elif inbox_item.is_reply():
