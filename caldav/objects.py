@@ -535,7 +535,7 @@ class Calendar(DAVObject):
 
     def send_schedule_request(self, ical, attendees):
         ## TODO: method supports raw strings, probably not icalendar nor vobject.
-        obj = self._calendar_comp_class_by_data(ical)(data=ical)
+        obj = self._calendar_comp_class_by_data(ical)(data=ical, client=self.client)
         obj.add_organizer()
         for attendee in attendees:
             obj.add_attendee(attendee)
