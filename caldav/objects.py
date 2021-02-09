@@ -162,7 +162,11 @@ class DAVObject(object):
             raise error.exception_by_method[query_method](errmsg(ret))
         return ret
 
-    def get_property(self, prop, **passthrough):
+    def get_property(self, prop, use_cached=False, **passthrough):
+        ## TODO: use_cached should probably be true
+        if use_cached:
+            if prop.tag in self.props:
+                return self.props[prop.tag]
         foo = self.get_properties([prop], **passthrough)
         return foo.get(prop.tag, None)
 
@@ -995,6 +999,8 @@ class Calendar(DAVObject):
             sync_token = response.sync_token
         except:
             sync_token = response.tree.findall('.//' + dav.SyncToken.tag)[0].text
+
+        ## this is not quite right - the etag we've fetched can already be outdated
         if load_objects:
             for obj in objects:
                 try:
@@ -1061,7 +1067,7 @@ class ScheduleMailbox(Calendar):
         """
         if not self._items:
             try:
-                self._items = self.objects()
+                self._items = self.objects(load_objects=True)
             except:
                 logging.debug("caldav server does not seem to support a sync-token REPORT query on a scheduling mailbox")
                 error.assert_('google' in str(self.url))
@@ -1191,6 +1197,7 @@ class CalendarObjectResource(DAVObject):
         cutype=UNKNOWN (unless a principal object is given)
         rsvp=TRUE
         role=REQ-PARTICIPANT
+        schedule-agent is not set
         """
         from icalendar import vCalAddress, vText
 
@@ -1234,6 +1241,12 @@ class CalendarObjectResource(DAVObject):
             self.load()
         return self.icalendar_instance.get('method', None) == 'REQUEST'
 
+    def accept_invite(self):
+        ## we need to modify the icalendar code, update our own participant status
+        self.change_attendee_status(partstat='ACCEPTED')
+        raise NotImplementedError("work in progress")
+        ## save ... with If-Schedule-Tag-Match, see section 3.2.10 and chapter 8 in https://tools.ietf.org/html/rfc6638
+
     def copy(self, keep_uid=False, new_parent=None):
         """
         Events, todos etc can be copied within the same calendar, to another
@@ -1252,6 +1265,8 @@ class CalendarObjectResource(DAVObject):
         if r.status == 404:
             raise error.NotFoundError(errmsg(r))
         self.data = vcal.fix(r.raw)
+        if 'Etag' in r.headers:
+            self.props[dav.GetEtag.tag] = r.headers['Etag']
         return self
 
     ## TODO: this method should be simplified and renamed, and probably
@@ -1300,13 +1315,13 @@ class CalendarObjectResource(DAVObject):
         self.url = URL.objectify(path)
         self.id = id
 
-    def change_attendee_status(status, attendee=None):
+    def change_attendee_status(attendee=None, **kwargs):
         if not attendee:
             attendee = self.client.principal()
-        pass
+        raise NotImplementedError()
         ## TODO - work in progress
 
-    def save(self, no_overwrite=False, no_create=False, obj_type=None):
+    def save(self, no_overwrite=False, no_create=False, obj_type=None, if_schedule_tag_match=False):
         """
         Save the object, can be used for creation and update.
 

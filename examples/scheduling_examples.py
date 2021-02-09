@@ -79,7 +79,6 @@ print("looking into the inbox of attendee1")
 all_cnt = 0
 part_req_cnt = 0
 for inbox_item in attendee1.principal.schedule_inbox().get_items():
-    import pdb; pdb.set_trace()
     all_cnt += 1
     ## an inbox_item is an ordinary CalendarResourceObject/Event/Todo etc.
     ## is_participation_request will be implemented on the base class and will yield True
