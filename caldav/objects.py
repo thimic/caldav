@@ -1254,12 +1254,14 @@ class CalendarObjectResource(DAVObject):
                 attendee_obj.params['cutype']='UNKNOWN'
             attendee_obj.params['rsvp']='TRUE'
             attendee_obj.params['role']='REQ-PARTICIPANT'
-            for key in parameters:
-                if '_' in key:
-                    parameters[key.replace('-', '_')] = parameters.pop(key)
-                if parameters[key] == True:
-                    parameters[key] = 'TRUE'
-        attendee_obj.params.update(parameters)
+        params = {}
+        for key in parameters:
+            new_key = key.replace('_', '-')
+            if parameters[key] == True:
+                params[new_key] = 'TRUE'
+            else:
+                params[new_key] = parameters[key]
+        attendee_obj.params.update(params)
         ievent = self._icalendar_object()
         ievent.add('attendee', attendee_obj)
 
