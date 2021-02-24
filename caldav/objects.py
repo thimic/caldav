@@ -459,7 +459,7 @@ class Principal(DAVObject):
     def freebusy_request(self, dtstart, dtend, attendees):
         import icalendar
         freebusy_ical = icalendar.Calendar()
-        freebusy_ical.add('prodid', '-//tobixen/python-caldav//en_DK')
+        freebusy_ical.add('prodid', '-//tobixen/python-caldav//EN')
         freebusy_ical.add('version', '2.0')
         freebusy_ical.add('method', 'REQUEST')
         uid = uuid.uuid1()
@@ -476,7 +476,7 @@ class Principal(DAVObject):
             caldavobj.add_attendee(attendee, no_default_parameters=True)
 
         import pdb; pdb.set_trace()
-        response = self.client.post(outbox.url, caldavobj.data)
+        response = self.client.post(outbox.url, caldavobj.data, headers={'Content-Type': 'text/calendar; charset=utf-8'})
         return response.find_objects_and_props()
 
     def calendar_user_address_set(self):
