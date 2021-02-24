@@ -1,6 +1,7 @@
 from caldav import DAVClient, error
 from icalendar import Calendar, Event
 from datetime import datetime, timedelta
+import pytz
 import uuid
 import sys
 
@@ -195,12 +196,11 @@ for inbox_item in organizer.principal.schedule_inbox().get_items():
 ## However, I will probably make a convenience method for doing the
 ## query, and leaving the parsing of the returned icalendar data to
 ## the user of the library:
+import pdb; pdb.set_trace()
 some_data_returned = organizer.principal.freebusy_request(
-    dtstart=datetime.now() + timedelta(days=3999),
-    dtend=datetime.now() + timedelta(days=4001),
-    attendees=[
-        ('Test User 2', 't-caldav-test2@tobixen.no'),
-        ('Test User 3', 't-caldav-test3@tobixen.no')])
+    dtstart=datetime.now().astimezone(pytz.utc) + timedelta(days=399),
+    dtend=datetime.now().astimezone(pytz.utc) + timedelta(days=399, hours=1),
+    attendees=['t-caldav-test2@tobixen.no', 't-caldav-test3@tobixen.no'])
 
 ## Examples in RFC6638 goes on to describing how to accept and decline
 ## particular instances of a recurring events, and RFC5546 has a lot
