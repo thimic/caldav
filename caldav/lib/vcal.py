@@ -4,6 +4,9 @@
 
 import re
 from caldav.lib.python_utilities import to_local
+import icalendar
+import datetime
+import uuid
 
 ## Fixups to the icalendar data to work around compatbility issues.
 
@@ -75,3 +78,32 @@ def fix(event):
             fixed2 += line + "\n"
 
     return fixed2
+
+## sorry for being english-language-euro-centric ... fits rather perfectly as default language for me :-)
+def create_ical(ical_fragment=None, objtype=None, language='en_DK', **attributes):
+    """
+    I somehow feel this fits more into the icalendar library than here
+    """
+    if not ical_fragment or not re.search('^BEGIN:V', ical_fragment, re.MULTILINE):
+        my_instance = icalendar.Calendar()
+        my_instance.add('prodid', f'-//python-caldav//caldav//{language}')
+        my_instance.add('version', '2.0')
+        if objtype is None:
+            objtype='VEVENT'
+        component = icalendar.cal.component_factory[objtype]()
+        component.add('dtstamp', datetime.datetime.now())
+        component.add('uid', uuid.uuid1())
+        my_instance.add_component(component)
+    else:
+        if not ical_fragment.startswith('BEGIN:VCALENDAR'):
+            ical_fragment = f'BEGIN:VCALENDAR\n{ical_fragment.strip()}\nEND:VCALENDAR\n'
+        my_instance = icalendar.Calendar.from_ical(ical_fragment)
+        component = my_instance.subcomponents[0]
+        ical_fragment = None
+    for attribute in attributes:
+        if attributes[attribute] is not None:
+            component.add(attribute, attributes[attribute])
+    ret = my_instance.to_ical()
+    if ical_fragment is not None:
+        ret = re.sub('^END:V', ret, ical_fragment.strip() + "\nEND:V")
+    return ret

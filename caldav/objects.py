@@ -593,13 +593,18 @@ class Calendar(DAVObject):
         obj.id = obj.icalendar_instance.walk('vevent')[0]['uid']
         obj.save()
 
-    def save_event(self, ical, no_overwrite=False, no_create=False):
+    def save_event(self, ical=None, no_overwrite=False, no_create=False, **ical_data):
         """
         Add a new event to the calendar, with the given ical.
 
         Parameters:
          * ical - ical object (text)
+         * no_overwrite - existing calendar objects should not be overwritten
+         * no_create - don't create a new object, existing calendar objects should be updated
+         * ical_data - passed to lib.vcal.create_ical
         """
+        if not ical or ical_data or not 'BEGIN:V' in ical:
+            ical = vcal.create_ical(ical_fragment=ical, **ical_data)
         e = Event(self.client, data=ical, parent=self)
         e.save(no_overwrite=no_overwrite, no_create=no_create, obj_type='event')
         return e
