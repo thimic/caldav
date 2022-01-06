@@ -1474,9 +1474,9 @@ class CalendarObjectResource(DAVObject):
             ## overwriting old stuff or vice versa - it seems silly to me
             ## to do a PUT instead of POST when creating new data).
             if not self.id:
-                for component in self.vobject_instance.children():
+                for component in self.vobject_instance.getChildren():
                     if hasattr(component, 'uid'):
-                        self.id = component.uid
+                        self.id = component.uid.value
             if not self.id and no_create:
                 raise error.ConsistencyError("no_create flag was set, but no ID given")
             existing = None
