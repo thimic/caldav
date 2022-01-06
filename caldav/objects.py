@@ -974,7 +974,7 @@ class Calendar(DAVObject):
         except error.NotFoundError:
             raise
         except Exception as err:
-            raise NotImplementedError("The object_by_uid is not compatible with some server implementations.  work in progress.")
+            raise NotImplementedError(f"Server said {str(err)}. The object_by_uid is not compatible with some server implementations.  work in progress.")
 
         # Ref Lucas Verney, we've actually done a substring search, if the
         # uid given in the query is short (i.e. just "0") we're likely to
@@ -1489,6 +1489,7 @@ class CalendarObjectResource(DAVObject):
                 methods = (self.parent.object_by_uid, self.parent.event_by_uid, self.parent.todo_by_uid, self.parent.journal_by_uid)
             for method in methods:
                 try:
+                    import pdb; pdb.set_trace()
                     existing = method(self.id)
                     if no_overwrite:
                         raise error.ConsistencyError("no_overwrite flag was set, but object already exists")

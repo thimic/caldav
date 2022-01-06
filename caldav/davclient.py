@@ -424,6 +424,7 @@ class DAVClient:
         Returns
          * DAVResponse
         """
+        import pdb; pdb.set_trace()
         return self.request(url, "REPORT", query,
                             {'Depth': str(depth), "Content-Type":
                              "application/xml; charset=\"utf-8\""})
@@ -502,8 +503,11 @@ class DAVClient:
 
         return (combined_headers, proxies)
 
-    def verify_login(self, url=None, method="PROPFIND", body="", headers={}):
-        """
+    def verify_login(self, url=None, method="PROPFIND", headers={}):
+        """I'd like to remove this method.  As for now, it seems to be needed
+        due to some weird case described in
+        https://github.com/python-caldav/caldav/issues/158
+
         Will do the following:
         * run a test request without auth towards the server.
         * assert it returns 401
@@ -512,16 +516,19 @@ class DAVClient:
         * assert it returns 2xx or 3xx
         In 0.9, it should return True or raise an exception
         In 0.8.2, it may log an error and return False
+
+        There is currently some dead codelines here as we no longer
+        run the verify_login if no password is given.
         """
         if not url:
             url=self.url
 
-        (combined_headers, proxies) = self._pre_request(url, body, headers)
+        (combined_headers, proxies) = self._pre_request(url, "", headers)
 
         if not self.auth:
             ## Try a test request w/o auth
             resp = self.session.request(
-                method, url, data=to_wire(body),
+                method, url,
                 headers=combined_headers, proxies=proxies,
                 verify=self.ssl_verify_cert, cert=self.ssl_cert)
 
@@ -554,11 +561,11 @@ class DAVClient:
                 raise NotImplementedError("Auth method %s not supported yet" % auth_type)
 
         resp = self.session.request(
-            method, url, data=to_wire(body),
+            method, url,
             headers=combined_headers, proxies=proxies, auth=self.auth,
             verify=self.ssl_verify_cert, cert=self.ssl_cert)
 
-        if resp.status_code > 399:
+        if resp.status_code in (401, 403):
             raise error.AuthorizationError(url=url, reason=resp.reason)
 
         # let's save the auth object and remove the user/pass information
@@ -580,15 +587,13 @@ class DAVClient:
         # ensure that url is a normal string
         url = str(url)
 
-        auth = None
-
-        if self.auth is None:
-            self.verify_login()
-
-        ## Compatibility workaround for radicale.
-        ## See https://github.com/Kozea/Radicale/issues/1195 for details.
-        if self.auth is None and self.password and body:
-            self.verify_login(url, method, body, headers)
+        if not self.auth and self.password:
+            ## this is needed due to some weird server that would just
+            ## abort the connection rather than send a 401 when an
+            ## unauthenticated request with a body was sent to the
+            ## server (perhaps we could work around it in some better
+            ## way ... but I'll leave it like this as for now)
+            self.verify_login(url, method, headers)
 
         log.debug(
             "sending request - method={0}, url={1}, headers={2}\nbody:\n{3}"
@@ -600,6 +605,25 @@ class DAVClient:
             verify=self.ssl_verify_cert, cert=self.ssl_cert)
         log.debug("server responded with %i %s" % (r.status_code, r.reason))
         response = DAVResponse(r)
+
+        ## This is probably the more proper way to discover the auth method.
+        ## The verify_login should in theory be sufficient, but there are
+        ## still issues with Radicale (ref https://github.com/Kozea/Radicale/issues/1195)
+        if (r.status_code == 401 and
+            'WWW-Authenticate' in r.headers and
+            self.password and
+            self.username and
+            not self.auth):
+            auth_type = r.headers['WWW-Authenticate']
+            auth_type = auth_type[0:auth_type.find(" ")]
+
+            if auth_type == 'Basic':
+                self.auth = requests.auth.HTTPBasicAuth(self.username, self.password)
+            elif auth_type == 'Digest':
+                self.auth = requests.auth.HTTPDigestAuth(self.username, self.password)
+            else:
+                raise NotImplementedError("Auth method %s not supported yet" % auth_type)
+            return self.request(url, method, body, headers)
 
         # this is an error condition that should be raised to the application
         if response.status == requests.codes.forbidden or \
