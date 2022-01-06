@@ -424,7 +424,6 @@ class DAVClient:
         Returns
          * DAVResponse
         """
-        import pdb; pdb.set_trace()
         return self.request(url, "REPORT", query,
                             {'Depth': str(depth), "Content-Type":
                              "application/xml; charset=\"utf-8\""})

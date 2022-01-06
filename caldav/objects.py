@@ -1474,22 +1474,22 @@ class CalendarObjectResource(DAVObject):
             ## overwriting old stuff or vice versa - it seems silly to me
             ## to do a PUT instead of POST when creating new data).
             if not self.id:
-                try:
-                    self.id = self.vobject_instance.vevent.uid.value
-                except AttributeError:
-                    pass
+                for component in self.vobject_instance.children():
+                    if hasattr(component, 'uid'):
+                        self.id = component.uid
             if not self.id and no_create:
                 raise error.ConsistencyError("no_create flag was set, but no ID given")
             existing = None
             ## some servers require one to explicitly search for the right kind of object.
             ## todo: would arguably be nicer to verify the type of the object and take it from there
-            if obj_type:
+            if not self.id:
+                methods = []
+            elif obj_type:
                 methods = (getattr(self.parent, "%s_by_uid" % obj_type),)
             else:
                 methods = (self.parent.object_by_uid, self.parent.event_by_uid, self.parent.todo_by_uid, self.parent.journal_by_uid)
             for method in methods:
                 try:
-                    import pdb; pdb.set_trace()
                     existing = method(self.id)
                     if no_overwrite:
                         raise error.ConsistencyError("no_overwrite flag was set, but object already exists")
