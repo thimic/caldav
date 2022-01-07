@@ -109,5 +109,5 @@ def create_ical(ical_fragment=None, objtype=None, language='en_DK', **attributes
             component.add(attribute, attributes[attribute])
     ret = my_instance.to_ical()
     if ical_fragment is not None:
-        ret = re.sub(b"^END:V", to_wire(ical_fragment.strip()) + b"\nEND:V", to_wire(ret), flags=re.MULTILINE)
+        ret = re.sub(b"^END:V", ical_fragment.strip() + b"\nEND:V", to_wire(ret), flags=re.MULTILINE)
     return ret
