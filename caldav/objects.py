@@ -1473,6 +1473,8 @@ class CalendarObjectResource(DAVObject):
             ## a unique new calendar item is created to the server without
             ## overwriting old stuff or vice versa - it seems silly to me
             ## to do a PUT instead of POST when creating new data).
+            ## TODO: the "find id"-logic is duplicated in _create,
+            ## should be refactored
             if not self.id:
                 for component in self.vobject_instance.getChildren():
                     if hasattr(component, 'uid'):
