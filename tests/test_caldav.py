@@ -380,7 +380,6 @@ class TestScheduling(object):
         assert(new_inbox_items[0].is_invite_request())
 
         ## Approving the invite
-        import pdb; pdb.set_trace()
         new_inbox_items[0].accept_invite(calendar=attendee_calendar)
         ## (now, this item should probably appear on a calendar somewhere ...
         ## TODO: make asserts on that)

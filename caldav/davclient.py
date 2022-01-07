@@ -486,9 +486,9 @@ class DAVClient:
     def options(self, url):
         return self.request(url, "OPTIONS")
 
-    def _pre_request(self, url, body, headers):
+    def request(self, url, method="GET", body="", headers={}):
         """
-        refacored out some stuff from requests, to be reused in verify_login
+        Actually sends the request
         """
         combined_headers = self.headers.copy()
         combined_headers.update(headers)
@@ -500,114 +500,37 @@ class DAVClient:
             proxies = {url.scheme: self.proxy}
             log.debug("using proxy - %s" % (proxies))
 
-        return (combined_headers, proxies)
-
-    def verify_login(self, url=None, method="PROPFIND", headers={}):
-        """I'd like to remove this method.  As for now, it seems to be needed
-        due to some weird case described in
-        https://github.com/python-caldav/caldav/issues/158
-
-        Will do the following:
-        * run a test request without auth towards the server.
-        * assert it returns 401
-        * read the WWW-Authenticate header and decide what kind of auth object to create
-        * run a test query with auth
-        * assert it returns 2xx or 3xx
-        In 0.9, it should return True or raise an exception
-        In 0.8.2, it may log an error and return False
-
-        There is currently some dead codelines here as we no longer
-        run the verify_login if no password is given.
-        """
-        if not url:
-            url=self.url
-
-        (combined_headers, proxies) = self._pre_request(url, "", headers)
-
-        if not self.auth:
-            ## Try a test request w/o auth
-            resp = self.session.request(
-                method, url,
-                headers=combined_headers, proxies=proxies,
-                verify=self.ssl_verify_cert, cert=self.ssl_cert)
-
-            if resp.status_code < 399 and not self.password and not self.username:
-                return True
-
-            if resp.status_code == 401 and not self.password and not self.username:
-                raise error.AuthorizationError(url=url, reason="No username/password given, but server requires it")
-
-            if resp.status_code != 401:
-                ## Radicale is by default set up with no auth, though
-                ## username/password is needed to fetch current-user-principal
-                ## resource.  Details at
-                ## https://github.com/Kozea/Radicale/issues/1195
-                ## should probably raise the error below if it's not
-                ## radicale
-                #logging.error("a resource %s that should be password protected is publically available" % url)
-                return True
-            if not 'WWW-Authenticate' in resp.headers:
-                raise error.AuthorizationError(url=url, reason="Server won't let us authenticate - missing WWW-Authenticate header in the response")
-
-            auth_type = resp.headers['WWW-Authenticate']
-            auth_type = auth_type[0:auth_type.find(" ")]
-
-            if auth_type == 'Basic':
-                self.auth = requests.auth.HTTPBasicAuth(self.username, self.password)
-            elif auth_type == 'Digest':
-                self.auth = requests.auth.HTTPDigestAuth(self.username, self.password)
-            else:
-                raise NotImplementedError("Auth method %s not supported yet" % auth_type)
-
-        resp = self.session.request(
-            method, url,
-            headers=combined_headers, proxies=proxies, auth=self.auth,
-            verify=self.ssl_verify_cert, cert=self.ssl_cert)
-
-        if resp.status_code in (401, 403):
-            raise error.AuthorizationError(url=url, reason=resp.reason)
-
-        # let's save the auth object and remove the user/pass information
-        if self.auth:
-            del self.username
-            del self.password
-
-        return True
-
-    def request(self, url, method="GET", body="", headers={}):
-        """
-        Actually sends the request
-        """
-        (combined_headers, proxies) = self._pre_request(url, body, headers)
-
         # objectify the url
         url = URL.objectify(url)
 
         # ensure that url is a normal string
         url = str(url)
 
-        if not self.auth and self.password:
-            ## this is needed due to some weird server that would just
-            ## abort the connection rather than send a 401 when an
-            ## unauthenticated request with a body was sent to the
-            ## server (perhaps we could work around it in some better
-            ## way ... but I'll leave it like this as for now)
-            self.verify_login(url, method, headers)
-
         log.debug(
             "sending request - method={0}, url={1}, headers={2}\nbody:\n{3}"
             .format(method, url, combined_headers, to_normal_str(body)))
 
-        r = self.session.request(
-            method, url, data=to_wire(body),
-            headers=combined_headers, proxies=proxies, auth=self.auth,
-            verify=self.ssl_verify_cert, cert=self.ssl_cert)
-        log.debug("server responded with %i %s" % (r.status_code, r.reason))
-        response = DAVResponse(r)
+        try:
+            r = self.session.request(
+                method, url, data=to_wire(body),
+                headers=combined_headers, proxies=proxies, auth=self.auth,
+                verify=self.ssl_verify_cert, cert=self.ssl_cert)
+            log.debug("server responded with %i %s" % (r.status_code, r.reason))
+            response = DAVResponse(r)
+        except:
+            ## this is a workaround needed due to some weird server
+            ## that would just abort the connection rather than send a
+            ## 401 when an unauthenticated request with a body was
+            ## sent to the server
+            if self.auth or not self.password:
+                raise
+            r = self.session.request(
+                method='GET', url=url, headers=combined_headers,
+                proxies=proxies, verify=self.ssl_verify_cert,
+                cert=self.ssl_cert)
+            if not r.status_code == 401:
+                raise
 
-        ## This is probably the more proper way to discover the auth method.
-        ## The verify_login should in theory be sufficient, but there are
-        ## still issues with Radicale (ref https://github.com/Kozea/Radicale/issues/1195)
         if (r.status_code == 401 and
             'WWW-Authenticate' in r.headers and
             self.password and
@@ -622,6 +545,8 @@ class DAVClient:
                 self.auth = requests.auth.HTTPDigestAuth(self.username, self.password)
             else:
                 raise NotImplementedError("Auth method %s not supported yet" % auth_type)
+            del self.username
+            del self.password
             return self.request(url, method, body, headers)
 
         # this is an error condition that should be raised to the application
